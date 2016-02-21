@@ -1,0 +1,85 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+require 'open3'
+require 'rainbow'
+
+
+if ARGV.empty?
+  puts Rainbow("You must supply a branch name").red
+  exit 2
+end
+
+if(ARGV[0] == "CLEAN")
+  branches = ARGV.drop(1)
+
+  branches.each do |arg|
+    puts Rainbow("Deleting branch #{arg}").magenta
+    command = "git branch -D #{arg}"
+    stdout_str, stderr_str, status = Open3.capture3(command)
+    if status.exitstatus != 0
+      puts Rainbow("#{stderr_str}").red
+      exit -1
+    end
+  end
+
+else
+
+  ARGV.each do |arg|
+    command = "git name-rev --name-only HEAD"
+    stdout_str, stderr_str, status = Open3.capture3(command)
+
+    if status.exitstatus != 0
+      puts Rainbow("#{stderr_str}").red
+      exit -1
+    else
+      puts Rainbow("Current branch: #{stdout_str}").green
+    end
+
+    stdout_str = stdout_str.gsub("\n", "")
+
+    if stdout_str != arg
+      # not in the branch arg
+      command = "git checkout #{arg}"
+      stdout_str, stderr_str, status = Open3.capture3(command)
+
+      if status.exitstatus != 0
+        puts Rainbow("#{stderr_str}").red
+        exit -1
+      end
+    end
+
+    puts Rainbow("Starting backup...").green
+    command = "git stash"
+    stdout_str, stderr_str, status = Open3.capture3(command)
+
+    if status.exitstatus != 0
+      puts Rainbow("#{stderr_str}").red
+      exit -1
+    else
+      time = Time.new
+      backup_name = "#{arg}#{time.hour}#{time.min}#{time.sec}#{time.day}#{time.month}#{time.year}"
+      command = "git checkout -b #{backup_name}"
+      stdout_str, stderr_str, status = Open3.capture3(command)
+
+      if status.exitstatus != 0
+        puts Rainbow("#{stderr_str}").red
+        exit -1
+      else
+        puts Rainbow("Backup at branch #{backup_name}").magenta
+        `git checkout #{arg}`
+        command = "git stash pop"
+
+        stdout_str, stderr_str, status = Open3.capture3(command)
+
+        if status.exitstatus != 0
+          puts Rainbow("#{stderr_str}").red
+          exit -1
+        else
+          puts Rainbow("Backup of branch #{arg} done with success!").green
+        end
+      end
+    end
+  end
+
+end

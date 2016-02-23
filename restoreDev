@@ -1,0 +1,77 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+require 'open3'
+require 'rainbow'
+
+
+if ARGV.empty?
+  puts Rainbow("You must supply the path of your project").red
+  exit 2
+end
+
+puts Rainbow("Starting restore the development environment").green
+
+def run_command command, flag = false
+  puts Rainbow(command).blue
+  stdout_str, stderr_str, status = Open3.capture3(command)
+
+  if status.exitstatus != 0
+    puts Rainbow("#{stderr_str}").red
+    exit -1
+  end
+  puts Rainbow("#{stdout_str}").yellow if flag
+end
+
+path = ARGV[0]
+
+Dir.chdir(path) do
+
+  puts Rainbow(Dir.pwd).blue
+
+  command = "git checkout db/schema.rb"
+  run_command command
+
+  command = "./script/noosfero-plugins disableall"
+  run_command command, true
+
+  puts Rainbow("Configure database").green
+
+  command = "cp config/database.yml.pgsql config/database.yml"
+  run_command command
+
+  user = ENV["USER"]
+  command = "sed -ri \"s/username: noosfero/username: #{user}/\" config/database.yml"
+  run_command command
+
+  command = "rake db:drop"
+  run_command command
+
+  command = "rake db:create"
+  run_command command
+
+  command = "rake db:schema:load"
+  run_command command
+
+  command = "rake db:migrate"
+  run_command command
+
+  puts Rainbow("Enable plugins").green
+
+  command = "./script/noosfero-plugins enable organization_ratings"
+  run_command command, true
+
+  command = "rake db:migrate"
+  run_command command
+
+  command = "./script/noosfero-plugins enable breadcrumbs community_block display_content gov_user people_block software_communities statistics"
+  run_command command, true
+
+  command = "rake db:migrate"
+  run_command command
+
+  command = "./script/sample-profiles"
+  run_command command, true
+
+  puts Rainbow("Development environment successfully restored").green
+end

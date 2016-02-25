@@ -1,0 +1,103 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+require 'open3'
+require 'rainbow'
+
+
+command = "rails runner \'user = User.create(:login => \'adminuser\', :email => \'admin@example.com\', :password => \'admin\', :password_confirmation => 'admin', :environment => Environment.default, :activated_at => Time.new)\'"
+puts command
+
+if ARGV.empty?
+  puts Rainbow("You must supply the path of your project and dump directory").red
+  exit 2
+end
+
+puts Rainbow("Starting restore the development environment").green
+
+def run_command command, flag = false
+  puts Rainbow(command).blue
+  stdout_str, stderr_str, status = Open3.capture3(command)
+
+  if status.exitstatus != 0
+    puts Rainbow("#{stderr_str}").red
+    exit -1
+  end
+  puts Rainbow("#{stdout_str}").yellow if flag
+end
+
+path = ARGV[0]
+path_dump = ARGV[1]
+user = ENV["USER"]
+
+Dir.chdir(path) do
+
+  puts Rainbow(Dir.pwd).blue
+
+  command = "git checkout db/schema.rb"
+  run_command command
+
+  command = "./script/noosfero-plugins disableall"
+  run_command command, true
+
+  puts Rainbow("Configure database").green
+
+  command = "cp config/database.yml.pgsql config/database.yml"
+  run_command command
+
+  command = "sed -ri \"s/username: noosfero/username: #{user}/\" config/database.yml"
+  run_command command
+
+  command = "sed -ri \"s/database: noosfero_development/database: noosfero_spb_development/\" config/database.yml"
+  run_command command
+
+  command = "rake db:drop"
+  run_command command
+
+  command = "rake db:create"
+  run_command command
+
+  command = "rake db:schema:load"
+  run_command command
+
+  command = "rake db:migrate"
+  run_command command
+
+  puts Rainbow("Enable plugins").green
+
+  command = "./script/noosfero-plugins enable organization_ratings"
+  run_command command, true
+
+  command = "rake db:migrate"
+  run_command command
+
+  command = "./script/noosfero-plugins enable breadcrumbs community_block display_content gov_user people_block software_communities statistics"
+  run_command command, true
+
+  command = "rake db:migrate"
+  run_command command
+
+  puts Rainbow("Enter your password to continue...").orange
+
+  command = "sudo -u postgres psql -c \"DROP DATABASE noosfero_spb_development\""
+  run_command command
+
+  command = "sudo -u postgres psql -c \"CREATE DATABASE noosfero_spb_development\""
+  run_command command
+
+  command = "sudo -u postgres psql noosfero_spb_development < #{path_dump}"
+  run_command command
+
+  puts Rainbow("Create adminuser").green
+
+  command = "rails runner \"user = User.create(:login => \'adminuser\', :email => \'admin@example.com\', :password => \'admin\', :password_confirmation => \'admin\', :environment => Environment.default)\""
+  run_command command
+
+  command = "rails runner \"Environment.default.enable(\'skip_new_user_email_confirmation\')\""
+  run_command command
+
+  command = "rails runner \"Environment.default.add_admin User.find_by_login(\'adminuser\').person\""
+  run_command command
+
+  puts Rainbow("Production environment successfully restored").green
+end
